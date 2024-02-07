@@ -1,4 +1,4 @@
-/* Copyright (c) 2023 ChinaUnicom
+/* Copyright (c) 2023-2024 ChinaUnicom
  * fastblock is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
@@ -142,7 +142,7 @@ void osd_stm::write_and_wait(
         SPDK_INFOLOG(osd, "process write_request , pool %lu pg %lu object_name %s offset %lu len %lu\n",
                      request->pool_id(), request->pg_id(), request->object_name().c_str(), request->offset(),
                      request->data().size());
-    
+
         auto entry_ptr = std::make_shared<raft_entry_t>();
         entry_ptr->set_type(RAFT_LOGTYPE_WRITE);
         entry_ptr->set_meta(std::move(buf));
@@ -223,7 +223,7 @@ void osd_stm::delete_and_wait(
 
         SPDK_INFOLOG(osd, "process delete_request , pool %lu pg %lu object_name %s \n",
                      request->pool_id(), request->pg_id(), request->object_name().c_str());
-    
+
         auto entry_ptr = std::make_shared<raft_entry_t>();
         entry_ptr->set_type(RAFT_LOGTYPE_DELETE);
         entry_ptr->set_meta(std::move(buf));

@@ -1,4 +1,4 @@
-/* Copyright (c) 2023 ChinaUnicom
+/* Copyright (c) 2023-2024 ChinaUnicom
  * fastblock is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
@@ -106,9 +106,9 @@ int raft_log::config_cache_flush(){
 
 int raft_log::log_truncate(raft_index_t idx)
 {
-    int n = _entries.for_upper(idx, 0, raft_pop_log, _raft); 
+    int n = _entries.for_upper(idx, 0, raft_pop_log, _raft);
     _entries.remove_upper(idx, n);
     //截断log盘中idx（包含idx）后的entry      todo
-    
+
     return 0;
 }

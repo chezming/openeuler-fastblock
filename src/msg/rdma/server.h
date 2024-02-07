@@ -1,4 +1,4 @@
-/* Copyright (c) 2023 ChinaUnicom
+/* Copyright (c) 2023-2024 ChinaUnicom
  * fastblock is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
@@ -169,7 +169,7 @@ public:
       , _thread{::spdk_thread_create("rpc_srv", &_cpumask)}
       , _opts{std::move(opts)}
       , _dev{std::make_shared<device>(process_ib_event)}
-      , _pd{std::make_unique<protection_domain>(_dev)}
+      , _pd{std::make_unique<protection_domain>(_dev, _opts->ep->device_name)}
       , _cq{std::make_shared<completion_queue>(_opts->ep->cq_num_entries, *_pd)}
       , _listener{nullptr}
       , _wcs{std::make_unique<::ibv_wc[]>(_opts->poll_cq_batch_size)}
@@ -177,11 +177,11 @@ public:
         std::make_shared<memory_pool<::ibv_send_wr>>(
         _pd->value(), "srv_meta",
         _opts->metadata_memory_pool_capacity,
-        _opts->metadata_memory_pool_element_size)}
+        _opts->metadata_memory_pool_element_size, 0)}
       , _data_pool{std::make_shared<memory_pool<::ibv_send_wr>>(
         _pd->value(), "srv_data",
         _opts->data_memory_pool_capacity,
-        _opts->data_memory_pool_element_size)} {
+        _opts->data_memory_pool_element_size, 0)} {
         endpoint ep{_opts->bind_address, _opts->port};
         ep.passive = true;
         _listener = std::make_unique<socket>(ep, *_pd, nullptr, false);

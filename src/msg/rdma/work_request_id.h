@@ -1,4 +1,4 @@
-/* Copyright (c) 2023 ChinaUnicom
+/* Copyright (c) 2023-2024 ChinaUnicom
  * fastblock is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
@@ -121,9 +121,16 @@ public:
         return _value;
     }
 
+#if defined(__arm__) || defined(__aarch64__)
+#pragma GCC push_options
+#pragma GCC optimize ("O2")
+#endif
     void inc_request_id() noexcept {
         *_request_id_pointer = *_request_id_pointer + 1;
     }
+#if defined(__arm__) || defined(__aarch64__)
+#pragma GCC pop_options
+#endif
 
     dispatch_id_type dispatch_id() noexcept {
         return _value & ~_request_id_mask;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2023 ChinaUnicom
+/* Copyright (c) 2023-2024 ChinaUnicom
  * fastblock is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
@@ -113,7 +113,7 @@ struct raft_cbs_t
 
 class raft_server_t{
 public:
-    raft_server_t(raft_client_protocol& client, disk_log* log, std::shared_ptr<state_machine> sm_ptr, 
+    raft_server_t(raft_client_protocol& client, disk_log* log, std::shared_ptr<state_machine> sm_ptr,
                     uint64_t pool_id, uint64_t pg_id, kvstore *);
 
     ~raft_server_t();
@@ -201,7 +201,7 @@ public:
     {
         return _heartbeat_timeout;
     }
-    
+
     /**
      * @return lease maintenance grace in milliseconds */
     int raft_get_lease_maintenance_grace()
@@ -281,7 +281,7 @@ public:
     {
         return _machine->get_last_applied_idx();
     }
-    
+
     raft_index_t raft_get_commit_idx()
     {
         return _commit_idx;
@@ -294,7 +294,7 @@ public:
             _leader_id = _node_id;
         _identity = identity;
     }
-    
+
     /** Tell if we are a leader, candidate or follower.
      * @return get state of type raft_identity. */
     raft_identity raft_get_identity()
@@ -351,7 +351,7 @@ public:
     void raft_set_udata(void* _udata)
     {
         udata = _udata;
-    }    
+    }
 
     bool raft_is_follower()
     {
@@ -397,7 +397,7 @@ public:
     {
         return snapshot_last_idx;
     }
-    
+
     raft_term_t raft_get_snapshot_last_term()
     {
         return snapshot_last_term;
@@ -528,7 +528,7 @@ public:
 
     void raft_disk_append_finish(raft_index_t start_idx, raft_index_t end_idx, int result);
 
-    /** 
+    /**
      *
      * Append the entry to the log and send appendentries to followers.
      *
@@ -558,7 +558,7 @@ public:
     int raft_send_appendentries(raft_node* node);
 
     bool raft_get_entry_term(raft_index_t idx, raft_term_t& term);
-    
+
     int raft_send_heartbeat_all();
 
     /**

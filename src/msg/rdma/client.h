@@ -1,4 +1,4 @@
-/* Copyright (c) 2023 ChinaUnicom
+/* Copyright (c) 2023-2024 ChinaUnicom
  * fastblock is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
@@ -302,6 +302,10 @@ public:
 
     public:
 
+#if defined(__arm__) || defined(__aarch64__)
+#pragma GCC push_options
+#pragma GCC optimize ("O2")
+#endif
         void per_post_recv() {
             _recv_ctx = _recv_pool->get_bulk(_opts->per_post_recv_num);
             for (size_t i{0}; i < _opts->per_post_recv_num - 1; ++i) {
@@ -329,6 +333,9 @@ public:
 
             SPDK_DEBUGLOG(msg, "post %ld receive wrs\n", _opts->per_post_recv_num);
         }
+#if defined(__arm__) || defined(__aarch64__)
+#pragma GCC pop_options
+#endif
 
         void generate_id(const connection_id::serial_type serial_no) {
             _id.update(_sock->guid(), serial_no);
@@ -879,18 +886,18 @@ public:
     client(std::string name, ::spdk_cpuset* cpumask, std::shared_ptr<options> opts)
       : _opts{opts}
       , _dev{std::make_shared<device>()}
-      , _pd{std::make_unique<protection_domain>(_dev)}
+      , _pd{std::make_unique<protection_domain>(_dev, _opts->ep->device_name)}
       , _cq{std::make_shared<completion_queue>(_opts->ep->cq_num_entries, *_pd)}
       , _wcs{std::make_unique<::ibv_wc[]>(_opts->poll_cq_batch_size)}
       , _thread{::spdk_thread_create(name.c_str(), cpumask)}
       , _meta_pool{std::make_shared<memory_pool<::ibv_send_wr>>(
         _pd->value(), FMT_1("%1%_m", name),
         _opts->metadata_memory_pool_capacity,
-        _opts->metadata_memory_pool_element_size)}
+        _opts->metadata_memory_pool_element_size, 0)}
       , _data_pool{std::make_shared<memory_pool<::ibv_send_wr>>(
         _pd->value(), FMT_1("%1%_d", name),
         _opts->data_memory_pool_capacity,
-        _opts->data_memory_pool_element_size)} {}
+        _opts->data_memory_pool_element_size, 0)} {}
 
     client(const client&) = delete;
 

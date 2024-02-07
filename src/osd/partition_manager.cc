@@ -1,4 +1,4 @@
-/* Copyright (c) 2023 ChinaUnicom
+/* Copyright (c) 2023-2024 ChinaUnicom
  * fastblock is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
@@ -93,11 +93,11 @@ int partition_manager::create_partition(
     _add_pg_shard(pool_id, pg_id, shard_id, revision_id);
 
     return _shard.invoke_on(
-      shard_id, 
+      shard_id,
       [this, pool_id, pg_id, osds = std::move(osds), revision_id, shard_id](){
-        SPDK_INFOLOG(osd, "create pg in core %u  shard_id %u pool_id %lu pg_id %lu \n", 
+        SPDK_INFOLOG(osd, "create pg in core %u  shard_id %u pool_id %lu pg_id %lu \n",
             spdk_env_get_current_core(), shard_id, pool_id, pg_id);
-        create_pg(pool_id, pg_id, std::move(osds), shard_id, revision_id);                
+        create_pg(pool_id, pg_id, std::move(osds), shard_id, revision_id);
       });
 }
 
@@ -115,14 +115,14 @@ int partition_manager::delete_partition(uint64_t pool_id, uint64_t pg_id){
     if(!get_pg_shard(pool_id, pg_id, shard_id)){
         return -1;
     }
-    
+
     _remove_pg_shard(pool_id, pg_id);
     return _shard.invoke_on(
-      shard_id, 
+      shard_id,
       [this, pool_id, pg_id, shard_id](){
-        SPDK_INFOLOG(osd, "delete pg in core %u shard_id %u pool_id %lu pg_id %lu \n", 
+        SPDK_INFOLOG(osd, "delete pg in core %u shard_id %u pool_id %lu pg_id %lu \n",
             spdk_env_get_current_core(), shard_id, pool_id, pg_id);
-        delete_pg(pool_id, pg_id, shard_id);                   
+        delete_pg(pool_id, pg_id, shard_id);
       });
 }
 
