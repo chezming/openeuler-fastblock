@@ -173,7 +173,7 @@ void start_rpc_client(void* arg) {
 
           // iter test
 
-          SPDK_NOTICELOG("Start sending rpc request\n");
+          SPDK_NOTICELOG("Start sending rpc request %ld times\n", g_iter_count);
           g_iops_start = std::chrono::system_clock::now();
           for (size_t i{0}; i < g_io_depth; ++i) {
               auto rpc_stack = std::make_unique<call_stack>();
