@@ -100,7 +100,7 @@ static void service_init(partition_manager* pm, server_t *server){
 	server->rpc_srv->register_service(global_osd_service.get());
 }
 
-struct pm_start_context : public context{
+struct pm_start_context : public utils::context{
     server_t *server;
     partition_manager* pm;
 
@@ -156,7 +156,7 @@ void storage_init_complete(void *arg, int rberrno){
     monitor::client::on_new_pg_callback_type pg_map_cb =
       [pm = global_pm] (const msg::PGInfo& pg_info, const int32_t pg_key, const int32_t pg_map_ver, const monitor::client::osd_map& osd_map) {
           SPDK_DEBUGLOG(osd, "enter pg_map_cb()\n");
-          std::vector<::osd_info_t> osds{};
+          std::vector<utils::osd_info_t> osds{};
           for (auto osd_id : pg_info.osdid()) {
               osds.push_back(*(osd_map.data.at(osd_id)));
           }
