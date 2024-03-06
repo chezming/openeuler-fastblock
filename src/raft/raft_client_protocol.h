@@ -11,73 +11,70 @@
 
 #pragma once
 #include <google/protobuf/stubs/callback.h>
+#include <concepts>
+
 #include "rpc/connect_cache.h"
 #include "rpc/raft_msg.pb.h"
 #include "msg/rpc_controller.h"
+#include "utils/err_num.h"
 
 class raft_server_t;
 
-class appendentries_source{
+void process_appendentries_response(raft_server_t *raft, msg_appendentries_response_t* response);
+void process_requestvote_response(raft_server_t *raft, msg_requestvote_response_t* response);
+void process_timeout_now_response(raft_server_t *raft, timeout_now_response* response);
+void process_snapshot_check_response(raft_server_t *raft, snapshot_check_response* response);
+void process_installsnapshot_response(raft_server_t *raft, installsnapshot_response* response);
+
+template<typename req_type, typename rsp_type>
+concept msg_type_valid = (
+  (std::is_same_v<req_type, msg_appendentries_t> && std::is_same_v<rsp_type, msg_appendentries_response_t>)
+  || (std::is_same_v<req_type, msg_requestvote_t> && std::is_same_v<rsp_type, msg_requestvote_response_t>)
+  || (std::is_same_v<req_type, timeout_now_request> && std::is_same_v<rsp_type, timeout_now_response>)
+  || (std::is_same_v<req_type, snapshot_check_request> && std::is_same_v<rsp_type, snapshot_check_response>) 
+  || (std::is_same_v<req_type, installsnapshot_request> && std::is_same_v<rsp_type, installsnapshot_response>)
+);
+
+template<typename request_type, typename response_type>
+requires msg_type_valid<request_type, response_type>
+class common_msg_source{
 public:
-    appendentries_source(msg_appendentries_t* request,
+    common_msg_source(request_type* request,
             raft_server_t *raft)
     : _request(request)
     , _raft(raft) {}
 
-    ~appendentries_source(){
+    ~common_msg_source(){
         if(_request)
             delete _request;
     }
 
-    void process_response();
+    void process_msg_response(msg_appendentries_response_t* response){
+        process_appendentries_response(_raft, response);
+    }  
+    void process_msg_response(msg_requestvote_response_t* response){
+        process_requestvote_response(_raft, response);
+    }    
+    void process_msg_response(timeout_now_response* response){
+        process_timeout_now_response(_raft, response);
+    }  
+    void process_msg_response(snapshot_check_response* response){
+        process_snapshot_check_response(_raft, response);
+    }
+    void process_msg_response(installsnapshot_response* response){
+        process_installsnapshot_response(_raft, response);
+    }  
 
-    msg::rdma::rpc_controller ctrlr;
-    msg_appendentries_response_t response;
-private:
-    msg_appendentries_t* _request;
-    raft_server_t *_raft;
-};
-
-class vote_source{
-public:
-    vote_source(msg_requestvote_t* request,
-            raft_server_t *raft)
-    : _request(request)
-    , _raft(raft) {}
-
-    ~vote_source(){
-        if(_request)
-            delete _request;
+    void process_response(){
+        process_msg_response(&response);
+        delete this;
     }
 
-    void process_response();
-
     msg::rdma::rpc_controller ctrlr;
-    msg_requestvote_response_t response;
+    response_type response;
 private:
-    msg_requestvote_t* _request;
-    raft_server_t *_raft;
-};
-
-class install_snapshot_source{
-public:
-    install_snapshot_source(msg_installsnapshot_t* request,
-            raft_server_t *raft)
-    : _request(request)
-    , _raft(raft) {}
-
-    ~install_snapshot_source(){
-        if(_request)
-            delete _request;
-    }
-
-    void process_response();
-
-    msg::rdma::rpc_controller ctrlr;
-    msg_installsnapshot_response_t response;
-private:
-    msg_installsnapshot_t* _request;
-    raft_server_t *_raft;
+    request_type* _request;
+    raft_server_t *_raft;    
 };
 
 class pg_group_t;
@@ -146,41 +143,88 @@ public:
         }
     }
 
-    void send_appendentries(raft_server_t *raft, int32_t target_node_id, msg_appendentries_t* request){
+    int send_appendentries(raft_server_t *raft, int32_t target_node_id, msg_appendentries_t* request){
         auto shard_id = _get_shard_id();
-        appendentries_source * source = new appendentries_source(request, raft);
+        auto source = new common_msg_source<msg_appendentries_t, msg_appendentries_response_t>(request, raft);
+        auto done = google::protobuf::NewCallback(source, 
+                &common_msg_source<msg_appendentries_t, msg_appendentries_response_t>::process_response);
 
-        auto done = google::protobuf::NewCallback(source, &appendentries_source::process_response);
         auto stub = _get_stub(shard_id, target_node_id);
+        if(!stub){
+            return  err::RAFT_ERR_NO_CONNECTED;
+        }
         stub->append_entries(&source->ctrlr, request, &source->response, done);
+        return err::E_SUCCESS;
     }
 
-    void send_vote(raft_server_t *raft, int32_t target_node_id, msg_requestvote_t *request){
+    int send_vote(raft_server_t *raft, int32_t target_node_id, msg_requestvote_t *request){
         auto shard_id = _get_shard_id();
-        vote_source * source = new vote_source(request, raft);
+        auto source = new common_msg_source<msg_requestvote_t, msg_requestvote_response_t>(request, raft);
+        auto done = google::protobuf::NewCallback(source, 
+                &common_msg_source<msg_requestvote_t, msg_requestvote_response_t>::process_response);
 
-        auto done = google::protobuf::NewCallback(source, &vote_source::process_response);
         auto stub = _get_stub(shard_id, target_node_id);
+        if(!stub){
+            return  err::RAFT_ERR_NO_CONNECTED;
+        }
         stub->vote(&source->ctrlr, request, &source->response, done);
+        return err::E_SUCCESS;
     }
 
-    void send_install_snapshot(raft_server_t *raft, int32_t target_node_id, msg_installsnapshot_t *request){
-        auto shard_id = _get_shard_id();
-        install_snapshot_source * source = new install_snapshot_source(request, raft);
-
-        auto done = google::protobuf::NewCallback(source, &install_snapshot_source::process_response);
-        auto stub = _get_stub(shard_id, target_node_id);
-        stub->install_snapshot(&source->ctrlr, request, &source->response, done);
-    }
-
-    void send_heartbeat(int32_t target_node_id, heartbeat_request* request, pg_group_t* group){
+    int send_heartbeat(int32_t target_node_id, heartbeat_request* request, pg_group_t* group){
         auto shard_id = _get_shard_id();
         heartbeat_source * source = new heartbeat_source(request, group, shard_id);
 
         SPDK_INFOLOG(pg_group, "heartbeat msg contains %d raft groups, to osd %d\n", request->heartbeats_size(), target_node_id);
         auto done = google::protobuf::NewCallback(source, &heartbeat_source::process_response);
         auto stub = _get_stub(shard_id, target_node_id);
+        if(!stub){
+            return  err::RAFT_ERR_NO_CONNECTED;
+        }
         stub->heartbeat(&source->ctrlr, request, &source->response, done);
+        return err::E_SUCCESS;
+    }
+
+    int send_timeout_now(raft_server_t *raft, int32_t target_node_id, timeout_now_request* request){
+        auto shard_id = _get_shard_id();
+        auto source = new common_msg_source<timeout_now_request, timeout_now_response>(request, raft);
+        auto done = google::protobuf::NewCallback(source, 
+                &common_msg_source<timeout_now_request, timeout_now_response>::process_response);
+
+        auto stub = _get_stub(shard_id, target_node_id);
+        if(!stub){
+            return  err::RAFT_ERR_NO_CONNECTED;
+        }
+        stub->timeout_now(&source->ctrlr, request, &source->response, done);
+        return err::E_SUCCESS;
+    }
+
+    int send_snapshot_check(raft_server_t *raft, int32_t target_node_id, snapshot_check_request *request){
+        auto shard_id = _get_shard_id();
+        auto source = new common_msg_source<snapshot_check_request, snapshot_check_response>(request, raft);
+
+        auto done = google::protobuf::NewCallback(source, 
+                &common_msg_source<snapshot_check_request, snapshot_check_response>::process_response);
+        auto stub = _get_stub(shard_id, target_node_id);
+        if(!stub){
+            return  err::RAFT_ERR_NO_CONNECTED;
+        } 
+        stub->snapshot_check(&source->ctrlr, request, &source->response, done);       
+        return err::E_SUCCESS;
+    }
+
+    int send_install_snapshot(raft_server_t *raft, int32_t target_node_id, installsnapshot_request *request){
+        auto shard_id = _get_shard_id();
+        auto source = new common_msg_source<installsnapshot_request, installsnapshot_response>(request, raft);
+ 
+        auto done = google::protobuf::NewCallback(source, 
+                &common_msg_source<installsnapshot_request, installsnapshot_response>::process_response);
+        auto stub = _get_stub(shard_id, target_node_id);
+        if(!stub){
+            return  err::RAFT_ERR_NO_CONNECTED;
+        }
+        stub->install_snapshot(&source->ctrlr, request, &source->response, done);
+        return err::E_SUCCESS;
     }
 
 private:

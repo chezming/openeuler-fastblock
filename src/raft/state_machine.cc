@@ -26,20 +26,18 @@ void state_machine::start(){
     _timer = SPDK_POLLER_REGISTER(&apply_task, this, 0);
 }
 
-struct apply_complete : public context{
+struct apply_complete : public utils::context{
     apply_complete(raft_index_t _idx, state_machine* _stm)
     : idx(_idx)
     , stm(_stm) {}
 
     void finish(int r) override {
+        SPDK_INFOLOG(pg_group, "apply log index %ld return %d\n", idx, r);
         if(r == err::E_SUCCESS){
             auto last_applied_idx = stm->get_last_applied_idx();
             stm->set_last_applied_idx(idx);
             stm->get_raft()->raft_get_log()->raft_write_entry_finish(idx, idx, r);
             stm->get_raft()->raft_get_log()->set_applied_index(last_applied_idx, idx);
-            /* voting cfg change is now complete */
-            if (idx == stm->get_raft()->raft_get_voting_cfg_change_log_idx())
-                stm->get_raft()->raft_set_voting_cfg_change_log_idx(-1);
         }
         stm->set_apply_in_progress(false);
     }
