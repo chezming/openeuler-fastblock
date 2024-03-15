@@ -281,7 +281,7 @@ func getUniformWeight(weight float64, totalWeight float64, pgCount int, pgSize i
 
 // RecheckPGs calculate
 func RecheckPGs(ctx context.Context, client *etcdapi.EtcdClient) {
-	recheckTick := time.NewTicker(10 * time.Second )
+	recheckTick := time.NewTicker(10 * time.Second)
 	for range recheckTick.C {
 		log.Info(ctx, "RecheckPgs enter.")
 
@@ -291,6 +291,7 @@ func RecheckPGs(ctx context.Context, client *etcdapi.EtcdClient) {
 		}
 		log.Info(ctx, "All pools config:", AllPools)
 
+		newOSDMapVersion := AllOSDInfo.Version
 		// A new pool or a pool config/pgs changed.
 		changed := false
 
@@ -308,8 +309,8 @@ func RecheckPGs(ctx context.Context, client *etcdapi.EtcdClient) {
 			var oldPGs map[string]PGConfig
 			var pgRevision int64
 			if pool.PoolPgMap.PgMap != nil {
-					pgNum = len(pool.PoolPgMap.PgMap)
-					oldPGs = pool.PoolPgMap.PgMap
+				pgNum = len(pool.PoolPgMap.PgMap)
+				oldPGs = pool.PoolPgMap.PgMap
 			}
 
 			//(fixme)
@@ -318,6 +319,11 @@ func RecheckPGs(ctx context.Context, client *etcdapi.EtcdClient) {
 				PGSize:         getEffectivePGSize(pool.PGSize, GetFailureDomainNum(osdTreeMap, pool.FailureDomain)),
 				PreviousPGList: oldPGs,
 			}
+
+			if len(*osdNodeMap)*2 < optimizeCfg.PGSize {
+				continue
+			}
+
 			optimizeCfg.OSDTree, optimizeCfg.OSDInfoMap, optimizeCfg.TotalWeight = FlattenTree(ctx, osdTreeMap, osdNodeMap, pool.PGCount, pool.PGSize, pool.FailureDomain, pool.Root, pool.Root != "")
 
 			var poolPGResult *OptimizeResult
@@ -326,7 +332,7 @@ func RecheckPGs(ctx context.Context, client *etcdapi.EtcdClient) {
 				poolPGResult, oerr = SimpleInitial(ctx, optimizeCfg)
 			} else {
 				//(fixme)we respect the orginal pg distribution for now
-				poolPGResult, oerr = SimpleChange(ctx, optimizeCfg)
+				poolPGResult, oerr = SimpleChange(ctx, optimizeCfg, newOSDMapVersion)
 			}
 
 			// Something wrong, so just keep old PG configs.
@@ -337,14 +343,22 @@ func RecheckPGs(ctx context.Context, client *etcdapi.EtcdClient) {
 
 			//seems no need to change now, we respect the original distribution
 			if poolPGResult != nil {
-				log.Info(ctx, "pool", poolID, ":", pool.Name, "result:", poolPGResult)
-				for _, pg := range poolPGResult.OptimizedPgMap.PgMap {
-					log.Debug(ctx, pg)
+				log.Warn(ctx, "pool", poolID, ":", pool.Name, "result:", poolPGResult)
+				for pgid, pg := range poolPGResult.OptimizedPgMap.PgMap {
+					log.Warn(ctx, "pgid: ", pgid, pg)
+				}
+
+				log.Warn(ctx, "------------")
+				if len(oldPGs) > 0 {
+					for pgid, pg := range oldPGs {
+						log.Warn(ctx, "pgid: ", pgid, pg)
+					}
 				}
 
 				poolPGResult.PoolID = poolID
-				if !isSamePGConfig(poolPGResult, &oldPGs, pgRevision) {
+				if !isSamePGConfig(ctx, poolPGResult, &oldPGs, pgRevision) {
 					changed = true
+					log.Warn(ctx, "PG map is changed!")
 					AllPools[poolID].PoolPgMap.PgMap = poolPGResult.OptimizedPgMap.PgMap
 					AllPools[poolID].PoolPgMap.Version++
 					if err := saveNewPGsTxn(ctx, client, poolID); err != nil {
@@ -355,10 +369,10 @@ func RecheckPGs(ctx context.Context, client *etcdapi.EtcdClient) {
 
 			//if !(changed || deleted) consider deleted pool
 			if !(changed) {
-				log.Info(ctx, "PG map not changed!")
+				log.Warn(ctx, "PG map not changed!")
 			}
 		}
-
+		osdmapVersion = newOSDMapVersion
 	}
 
 }
@@ -392,7 +406,7 @@ func getEffectivePGSize(pgSize, domainNum int) int {
 // isSamePGConfig checks if the new and old PG configurations are the same.
 // It takes in the new PG configuration, old PG configuration, and revision number as arguments.
 // It returns a boolean indicating whether the configurations are the same.
-func isSamePGConfig(newPGConfig *OptimizeResult, oldPGConfig *map[string]PGConfig, revision int64) bool {
+func isSamePGConfig(ctx context.Context, newPGConfig *OptimizeResult, oldPGConfig *map[string]PGConfig, revision int64) bool {
 	if newPGConfig == nil && oldPGConfig == nil {
 		return true
 	}
@@ -405,25 +419,51 @@ func isSamePGConfig(newPGConfig *OptimizeResult, oldPGConfig *map[string]PGConfi
 		return false
 	}
 
-	for pgid, osdlist := range newPGConfig.OptimizedPgMap.PgMap {
-		if oldPG, ok := (*oldPGConfig)[pgid]; !ok {
+	for pgid, pgCfg := range newPGConfig.OptimizedPgMap.PgMap {
+		if oldPgCfg, ok := (*oldPGConfig)[pgid]; !ok {
 			return false
 		} else {
-			if len(oldPG) < len(osdlist) {
+			osdlist := pgCfg.OsdList
+
+			if compare_arry(osdlist, oldPgCfg.OsdList) == false {
 				return false
 			}
-			for osdIndex, osdID := range oldPG {
 
-				if osdIndex >= len(osdlist) {
-					return false
-				}
-				if osdID != int(osdlist[osdIndex]) {
-					return false
-				}
-			}
+			// if len(oldPgCfg.OsdList) < len(osdlist) {
+			// return false
+			// }
+			// for osdIndex, osdID := range oldPgCfg.OsdList {
+			//
+			// if osdIndex >= len(osdlist) {
+			// return false
+			// }
+			// if osdID != int(osdlist[osdIndex]) {
+			// return false
+			// }
+			// }
 		}
 	}
 
+	return true
+}
+
+func compare_arry(arr1 []int, arr2 []int) bool {
+	mp1 := make(map[int]int)
+
+	if len(arr1) != len(arr2) {
+		return false
+	}
+
+	for _, val := range arr1 {
+		mp1[val] = 1
+	}
+
+	for _, val := range arr2 {
+		_, ok := mp1[val]
+		if !ok {
+			return false
+		}
+	}
 	return true
 }
 
@@ -438,7 +478,7 @@ func isSamePGConfig(newPGConfig *OptimizeResult, oldPGConfig *map[string]PGConfi
  * 注释中假设pg_size为3。
  */
 func SimpleInitial(ctx context.Context, cfg *OptimizeCfg) (*OptimizeResult, error) {
-	if cfg == nil || cfg.OSDTree == nil || cfg.OSDInfoMap == nil || len(*cfg.OSDTree) == 0 || len(*cfg.OSDInfoMap) == 0 {
+	if cfg == nil || cfg.OSDTree == nil || cfg.OSDInfoMap == nil || len(*cfg.OSDTree) == 0 || len(*cfg.OSDInfoMap) == 0 || len(*cfg.OSDTree)*2 < cfg.PGSize {
 		return nil, errors.New("invalid input cfg")
 	}
 	if int(cfg.PGSize) > len(*cfg.OSDTree) {
@@ -572,8 +612,11 @@ func SimpleInitial(ctx context.Context, cfg *OptimizeCfg) (*OptimizeResult, erro
 		OptimizedPgMap: PoolPGsConfig{PgMap: make(map[string]PGConfig), Version: 1},
 	}
 
+	oldPGs := cfg.PreviousPGList
+
 	for i := 0; i < pg_count; i++ {
 		var ppc PGConfig
+
 		for j := 0; j < pg_size; j++ {
 			// 对于每个pg 每个位置，都从上面计算出的host中，pop一个osd出来
 			host_idx := pg_host_array[i][j]
@@ -589,8 +632,22 @@ func SimpleInitial(ctx context.Context, cfg *OptimizeCfg) (*OptimizeResult, erro
 			if tree_node == nil {
 				return nil, errors.New("tree_node pointer invalid")
 			}
-			ppc = append(ppc, int((*tree_node).OSDID))
+			ppc.OsdList = append(ppc.OsdList, int((*tree_node).OSDID))
 		}
+
+		oldPgCfg, ok := oldPGs[strconv.Itoa(i)]
+		if !ok {
+			ppc.Version = 1
+		} else {
+			old_osdlist := oldPgCfg.OsdList
+			equal := compare_arry(old_osdlist, ppc.OsdList)
+			if equal {
+				ppc.Version = oldPgCfg.Version
+			} else {
+				ppc.Version = oldPgCfg.Version + 1
+			}
+		}
+
 		result.OptimizedPgMap.PgMap[strconv.Itoa(i)] = ppc
 	}
 	log.Info(ctx, "Step 4 done.")
@@ -599,7 +656,8 @@ func SimpleInitial(ctx context.Context, cfg *OptimizeCfg) (*OptimizeResult, erro
 }
 
 // check whether we should respect the original pg distribution
-func SimpleChange(ctx context.Context, cfg *OptimizeCfg) (*OptimizeResult, error) {
+func SimpleChange(ctx context.Context, cfg *OptimizeCfg, newOsdMapVersion int64) (*OptimizeResult, error) {
+	log.Info(ctx, "Simple Change enter!")
 	if cfg == nil || cfg.OSDTree == nil || cfg.OSDInfoMap == nil || len(*cfg.OSDTree) == 0 || len(*cfg.OSDInfoMap) == 0 {
 		return nil, errors.New("invalid input cfg")
 	}
@@ -608,11 +666,339 @@ func SimpleChange(ctx context.Context, cfg *OptimizeCfg) (*OptimizeResult, error
 		return nil, errors.New("PGSize > OSDTree")
 	}
 
-	log.Info(ctx, "SimpleChange cfg:", *cfg)
-	//check whether we should respect the original pg distribution
-	return nil, nil
+	if osdmapVersion >= newOsdMapVersion {
+		return nil, nil
+	}
 
-	//return SimpleInitial(ctx, cfg)
+	log.Warn(ctx, "osdmapVersion: ", osdmapVersion, "AllOSDInfo.Version :", newOsdMapVersion)
+
+	log.Warn(ctx, "SimpleChange cfg:", *cfg)
+	//check whether we should respect the original pg distribution
+	// return nil, nil
+
+	host_count := len(*cfg.OSDTree)
+	pg_count := int(cfg.PGCount)
+	pg_size := int(cfg.PGSize)
+	pg_per_host := pg_count * pg_size / host_count
+	log.Info(ctx, "pg_per_host: ", pg_per_host)
+
+	// 步骤1: 统计每个host上有哪几个pg
+	pg_on_host_map := make(map[int][]int)
+	// 统计每个pg下存放的host索引
+	pg_host_array := make([][]int, pg_count)
+
+	pg_num_on_host := make([]int, host_count)
+	// 统计每一个host上pg的数量，这里不包括已经down掉的host上的osd。因为osdtree已经更新过了。
+	log.Info(ctx, "PreviousPGList: ", cfg.PreviousPGList)
+	for _, pgConfig := range cfg.PreviousPGList {
+		for _, osdID := range pgConfig.OsdList {
+			hostIndex := findHostIndexForOSD(osdID, cfg.OSDTree)
+			if hostIndex != -1 {
+				pg_num_on_host[hostIndex]++
+			}
+		}
+	}
+	log.Info(ctx, "pg_num_on_host: ", pg_num_on_host)
+
+	// 这里会出现一个特殊情况，如果previousPGList为：map[0:{193 [3 2 23]} 1:{193 [5 1 4]}]]，osd全部down掉之后，重新启动osd1
+	// 这里pg_host_array读取历史数据之后，就会变成pg_host_array:  [[-1] [-1]]，与实际不符合。
+	for pgIDStr, pgConfig := range cfg.PreviousPGList {
+		pgID, _ := strconv.Atoi(pgIDStr)
+		// 确保pg_host_array有足够的空间
+		pg_host_array[pgID] = make([]int, pg_size)
+		for i := range pg_host_array[pgID] {
+			pg_host_array[pgID][i] = -1
+		}
+		validIndexCount := 0
+		for _, osdID := range pgConfig.OsdList {
+			if validIndexCount == pg_size {
+				break
+			}
+			hostIndex := findHostIndexForOSD(osdID, cfg.OSDTree)
+			if hostIndex != -1 {
+				pg_on_host_map[hostIndex] = append(pg_on_host_map[hostIndex], pgID)
+				pg_host_array[pgID][validIndexCount] = hostIndex
+				validIndexCount++
+			}
+		}
+	}
+
+	allZero := true
+	for _, count := range pg_num_on_host {
+		if count != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		return SimpleInitial(ctx, cfg)
+	}
+
+	// 步骤2: 添加新主机之后，重新分配pg
+	if host_count > 2 {
+		break_flag := true
+		temp_pg_on_host_map := make(map[int][]int)
+		for k, v := range pg_on_host_map {
+			temp_pg_on_host_map[k] = append([]int(nil), v...)
+		}
+		temp_pg_host_array := make([][]int, len(pg_host_array))
+		for i, hosts := range pg_host_array {
+			temp_pg_host_array[i] = make([]int, len(hosts))
+			copy(temp_pg_host_array[i], hosts)
+		}
+		for loop := 0; loop < pg_count; loop++ {
+			// 查找承担最多pg和最少的host
+			// 由于当osd数量不够的时候，所有的osd上面的pg数都是pg_count。这时候找到的最大值的index都是0
+			max_host := max_index(pg_num_on_host[:])
+			log.Debug(ctx, "max_host: ", max_host)
+			min_host, second_min_host, third_min_host := top3_min_index(pg_num_on_host[:])
+			log.Debug(ctx, "min_host: ", min_host, "second_min_host: ", second_min_host)
+			log.Debug(ctx, "min: ", pg_num_on_host[min_host], "max: ", pg_num_on_host[max_host])
+
+			break_flag = true
+			if pg_num_on_host[min_host] < pg_per_host || pg_num_on_host[max_host] > pg_per_host+1 {
+				// 遍历承担pg最多的host上面的每个pg
+				for i := 0; i < len(pg_on_host_map[max_host]); i++ {
+					pg_id := pg_on_host_map[max_host][i]
+					log.Debug(ctx, "pg_id: ", pg_id)
+					log.Debug(ctx, "pg_host_array[pg_id]: ", pg_host_array[pg_id])
+					if contains(pg_host_array[pg_id], max_host, 0, -1) {
+						if transfer_one_copy(ctx,
+							temp_pg_on_host_map,
+							temp_pg_host_array[pg_id],
+							max_host,
+							min_host,
+							second_min_host,
+							third_min_host,
+							pg_num_on_host[:],
+							pg_id) {
+							break_flag = false
+							break
+						}
+					}
+				}
+			}
+			if break_flag {
+				break
+			}
+			for k, v := range temp_pg_on_host_map {
+				pg_on_host_map[k] = v
+			}
+			for i := range pg_host_array {
+				pg_host_array[i] = temp_pg_host_array[i]
+			}
+		}
+	}
+
+	log.Info(ctx, "pg_on_host_map after balancing: ", pg_on_host_map)
+	log.Info(ctx, "pg_host_array after balancing: ", pg_host_array)
+	log.Info(ctx, "pg_num_on_host after balancing: ", pg_num_on_host)
+
+	host_queue := make([]Queue, host_count)
+
+	// Step 3: Allocate OSDs for each host
+	for hostIndex, pgs := range pg_on_host_map {
+		osds := (*cfg.OSDTree)[hostIndex].ChildNode
+
+		for _, pgID := range pgs {
+			assigned := false
+			for _, osdID := range pg_host_array[pgID] {
+				if osdExistInHost(osdID, osds) {
+					osdIndex := findOSDIndex(osdID, osds)
+					if osdIndex != -1 {
+						host_queue[hostIndex].Push(osdIndex)
+						assigned = true
+						break
+					}
+				}
+			}
+			if !assigned {
+				randomOSD := getRandomOSD(osds)
+				randomIndex := findOSDIndex(int(randomOSD.OSDID), osds)
+				if randomIndex != -1 {
+					host_queue[hostIndex].Push(randomIndex)
+				}
+			}
+		}
+	}
+
+	log.Info(ctx, "Step 3 completed: OSD allocation for each host.")
+	log.Info(ctx, "host queue after allocate: ", host_queue)
+
+	// Step 4: 确保每个 PG 都在线且有足够的副本
+	for pgID := 0; pgID < pg_count; pgID++ {
+		// 统计有效副本的数量和它们所在的 Host
+		validReplicas := make(map[int]bool)
+		for _, hostIndex := range pg_host_array[pgID] {
+			if hostIndex != -1 && (*cfg.OSDTree)[hostIndex] != nil {
+				validReplicas[hostIndex] = true
+			}
+		}
+		// 确定需要的副本数
+		requiredReplicas := min(pg_size, host_count)
+		log.Info(ctx, "validReplicas: ", validReplicas, "requiredReplicas: ", requiredReplicas)
+		// 检查并补足副本
+		for len(validReplicas) < requiredReplicas {
+			oldLen := len(validReplicas) // 保存当前有效副本的数量
+			for hostIndex := 0; hostIndex < host_count; hostIndex++ {
+				// 如果当前 Host 在有效副本中不存在且未下线，且负载未达到上限
+				if !validReplicas[hostIndex] && (*cfg.OSDTree)[hostIndex] != nil && pg_num_on_host[hostIndex] < pg_per_host {
+					queue := host_queue[hostIndex]
+					var selectedOSD int
+					if !queue.IsEmpty() {
+						selectedOSD = queue.Pop()
+					} else {
+						selectedOSD = rand.Intn(len((*cfg.OSDTree)[hostIndex].ChildNode))
+					}
+					// 替换 pg_host_array 中的 -1
+					replaced := false
+					for i, idx := range pg_host_array[pgID] {
+						if idx == -1 {
+							pg_host_array[pgID][i] = hostIndex
+							replaced = true
+							break
+						}
+					}
+					log.Info(ctx, "pg_host_array: ", pg_host_array)
+					if !replaced {
+						pg_host_array[pgID] = append(pg_host_array[pgID], hostIndex)
+					}
+					// 更新 host_queue
+					host_queue[hostIndex].Push(selectedOSD)
+					pg_num_on_host[hostIndex]++
+					validReplicas[hostIndex] = true
+					break
+
+				}
+			}
+
+			// 如果无法找到合适的 Host 来补足副本，则跳出循环
+			if len(validReplicas) == oldLen {
+				log.Warn(ctx, "Unable to find enough hosts for replicas for PG:", pgID)
+				break
+			}
+		}
+	}
+
+	log.Info(ctx, "pg_num_on_host after ensure: ", pg_num_on_host)
+	log.Info(ctx, "pg_host_array after ensure: ", pg_host_array)
+	log.Info(ctx, "host queue after ensure: ", host_queue)
+
+	// Step 5: 构造返回值
+	result := OptimizeResult{
+		OptimizedPgMap: PoolPGsConfig{PgMap: make(map[string]PGConfig), Version: 1},
+	}
+
+	oldPGs := cfg.PreviousPGList
+
+	for i := 0; i < pg_count; i++ {
+		var ppc PGConfig
+
+		// ppc.OsdList = append(ppc.OsdList, pg_host_array[i]...)
+		// 遍历 pg_host_array 来获取每个 PG 的 OSD ID
+		for _, hostIndex := range pg_host_array[i] {
+			// 从 host_queue 中弹出 OSD 的索引
+			osdIndex := host_queue[hostIndex].Pop()
+			// 获取相应的 OSD ID
+			osdID := (*cfg.OSDTree)[hostIndex].ChildNode[osdIndex].OSDID
+			// 添加到 PGConfig 中
+			ppc.OsdList = append(ppc.OsdList, int(osdID))
+		}
+		// 检查并更新 PG 配置的版本
+		oldPgCfg, ok := oldPGs[strconv.Itoa(i)]
+		if !ok {
+			ppc.Version = 1
+		} else {
+			equal := compare_array(oldPgCfg.OsdList, ppc.OsdList)
+			if equal {
+				ppc.Version = oldPgCfg.Version
+			} else {
+				ppc.Version = oldPgCfg.Version + 1
+			}
+		}
+
+		result.OptimizedPgMap.PgMap[strconv.Itoa(i)] = ppc
+	}
+
+	log.Info(ctx, "Step 4 done: Optimized PG configuration generated.")
+
+	for pgid, pg := range result.OptimizedPgMap.PgMap {
+		log.Warn(ctx, "pgid: ", pgid, pg)
+	}
+
+	return &result, nil
+	// return SimpleInitial(ctx, cfg)
+
+}
+
+func findOSDIndex(osdID int, osds []*TreeNode) int {
+	for index, osd := range osds {
+		if int(osd.OSDID) == osdID {
+			return index
+		}
+	}
+	return -1
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func compare_array(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func findHostIndexForOSD(osdID int, osdTree *[]*DomainNode) int {
+	for index, domainTree := range *osdTree {
+		for _, treeNode := range domainTree.ChildNode {
+			if int(treeNode.OSDID) == osdID {
+				return index
+			}
+		}
+	}
+	return -1
+}
+
+func removePGFromHostMap(pgOnHostMap map[int][]int, hostIndex int, pgToMove int) {
+	// 查找并删除指定的pg
+	for i, pgID := range pgOnHostMap[hostIndex] {
+		if pgID == pgToMove {
+			// 从主机的PG列表中移除
+			pgOnHostMap[hostIndex] = append(pgOnHostMap[hostIndex][:i], pgOnHostMap[hostIndex][i+1:]...)
+			break
+		}
+	}
+}
+
+func osdExistInHost(osdID int, osds []*TreeNode) bool {
+	for _, osd := range osds {
+		if osd != nil && int(osd.OSDID) == osdID {
+			return true
+		}
+	}
+	return false
+}
+
+func getRandomOSD(osds []*TreeNode) *TreeNode {
+	if len(osds) == 0 {
+		return nil
+	}
+
+	source := rand.NewSource(time.Now().UnixNano())
+	r := rand.New(source)
+	randomIndex := r.Intn(len(osds))
+	return osds[randomIndex]
 }
 
 /**
@@ -655,6 +1041,38 @@ func transfer_one(ctx context.Context, pg []int, max_host int, min_host int, sec
 		return true
 	}
 
+	return false
+}
+
+func transfer_one_copy(ctx context.Context, pg_on_host_map map[int][]int, pg_host_array []int, max_host int, min_host int, second_min_host int,
+	third_min_host int, pg_num_on_host []int, pgID int) bool {
+	transferToHost := func(newHost int) {
+		for i, host := range pg_host_array {
+			if host == max_host {
+				pg_host_array[i] = newHost
+				break
+			}
+		}
+		pg_num_on_host[max_host]--
+		pg_num_on_host[newHost]++
+
+		// 从原主机的PG列表中移除，并添加到新的主机PG列表中
+		removePGFromHostMap(pg_on_host_map, max_host, pgID)
+		pg_on_host_map[newHost] = append(pg_on_host_map[newHost], pgID)
+	}
+	if !contains(pg_host_array, min_host, 0, -1) {
+		log.Debug(ctx, "pg: ", pg_host_array, " max_host: ", max_host, "min_host: ", min_host)
+		transferToHost(min_host)
+		return true
+	} else if !contains(pg_host_array, second_min_host, 0, -1) {
+		log.Debug(ctx, "pg: ", pg_host_array, " max_host: ", max_host, "second_min_host: ", second_min_host)
+		transferToHost(second_min_host)
+		return true
+	} else if !contains(pg_host_array, third_min_host, 0, -1) {
+		log.Info(ctx, "pg: ", pg_host_array, " max_host: ", max_host, "third_min_host: ", third_min_host)
+		transferToHost(third_min_host)
+		return true
+	}
 	return false
 }
 
