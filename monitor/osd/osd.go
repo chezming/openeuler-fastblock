@@ -24,7 +24,7 @@ import (
 
 type OSDID int
 
-//(fixme) make it configurable
+// (fixme) make it configurable
 const (
 	heartbeatInterval = 100 * time.Second
 	//the osd should have enough time to connect and heartbeat
@@ -60,9 +60,9 @@ type OsdMap struct {
 }
 
 type HeartBeatInfo struct {
-	osdid         OSDID
-	lastHeartBeat time.Time
-	failedCounter int
+	osdid          OSDID
+	lastHeartBeat  time.Time
+	failedCounter  int
 	successCounter int
 }
 
@@ -115,7 +115,7 @@ func LoadOSDStateFromEtcd(ctx context.Context, client *etcdapi.EtcdClient) (err 
 	return nil
 }
 
-//when a new osd is applied, we append it to AllOSDInfo.Osdinfo, and put it into etcd
+// when a new osd is applied, we append it to AllOSDInfo.Osdinfo, and put it into etcd
 func ProcessApplyIDMessage(ctx context.Context, client *etcdapi.EtcdClient, uuid string) (int, error) {
 	for _, info := range AllOSDInfo.Osdinfo {
 		if uuid == info.Uuid {
@@ -138,7 +138,7 @@ func ProcessApplyIDMessage(ctx context.Context, client *etcdapi.EtcdClient, uuid
 	}
 
 	AllOSDInfo.Osdinfo[OSDID(oid)] = oi
-	AllOSDInfo.Version++
+	// AllOSDInfo.Version++
 
 	if AllHeartBeatInfo == nil {
 		AllHeartBeatInfo = make(map[OSDID]*HeartBeatInfo)
@@ -315,6 +315,16 @@ func CheckOsdHeartbeat(ctx context.Context, client *etcdapi.EtcdClient) {
 					hi.successCounter++
 					if hi.successCounter > minSuccessAttempts {
 						info.IsUp = true
+						info.IsIn = true
+						isChange = true
+					}
+				} else {
+					// this osd is still down, and we haven't received heartbeat from it, we should mark it out.
+					hi.failedCounter++
+					if hi.failedCounter > maxFailedAttempts {
+						hi.failedCounter = 0
+						info.IsUp = false
+						info.IsIn = false
 						isChange = true
 					}
 				}
@@ -323,6 +333,7 @@ func CheckOsdHeartbeat(ctx context.Context, client *etcdapi.EtcdClient) {
 				if hi.lastHeartBeat.Add(heartbeatInterval).Before(time.Now()) {
 					hi.failedCounter++
 					if hi.failedCounter > maxFailedAttempts {
+						hi.failedCounter = 0
 						info.IsUp = false
 						isChange = true
 					}
@@ -341,7 +352,7 @@ func CheckOsdHeartbeat(ctx context.Context, client *etcdapi.EtcdClient) {
 				log.Error(ctx, err)
 			}
 
-			log.Info(ctx, "successfully update osdmap after heartbeat change")
+			log.Warn(ctx, "successfully update osdmap after heartbeat change")
 		}
 	}
 }
