@@ -15,6 +15,10 @@
 buffer_list make_buffer_list(size_t n) {
   buffer_list bl;
   for (size_t i = 0; i < n; i++) {
+    auto sbuf = buffer_pool_get();
+    if (!sbuf) {
+        throw std::runtime_error("Failed to allocate buffer from pool.");
+    }
     bl.append_buffer(buffer_pool_get());
   }
   return bl;
