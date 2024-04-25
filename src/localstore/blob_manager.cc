@@ -80,7 +80,7 @@ static void close_super_done(void *cb_arg, int bserrno){
     spdk_free(ctx->uuid_buf);
     delete ctx;
     return;
-  }  
+  }
 
   ctx->cb_fn(ctx->args, 0);
   spdk_free(ctx->uuid_buf);
@@ -95,7 +95,7 @@ static void write_super_complete(void *arg, int rberrno){
       spdk_free(ctx->uuid_buf);
       delete ctx;
       return;
-  }    
+  }
 
   spdk_blob_close(ctx->blob, close_super_done, ctx);
 }
@@ -155,7 +155,7 @@ static void create_super_blob_done(void *arg, spdk_blob_id blobid, int objerrno)
 
   SPDK_INFOLOG(blob_log, "create super blob: %lu done\n", blobid);
   bc->blobid = blobid;
-  spdk_bs_set_super(bc->bs, blobid, set_super_complete, bc);  
+  spdk_bs_set_super(bc->bs, blobid, set_super_complete, bc);
 }
 
 static void
@@ -165,8 +165,8 @@ super_get_xattr_value(void *arg, const char *name, const void **value, size_t *v
 
   if(!strcmp("type", name)){
     *value = &(ctx->type);
-    *value_len = sizeof(ctx->type);    
-    return; 
+    *value_len = sizeof(ctx->type);
+    return;
   }
   *value = NULL;
   *value_len = 0;
@@ -209,7 +209,7 @@ bs_init_complete(void *args, struct spdk_blob_store *bs, int bserrno)
   opts.xattrs.count = SPDK_COUNTOF(xattr_names);
   opts.xattrs.names = xattr_names;
   opts.xattrs.ctx = bc;
-  opts.xattrs.get_value = super_get_xattr_value; 
+  opts.xattrs.get_value = super_get_xattr_value;
   spdk_bs_create_blob_ext(bs, &opts, create_super_blob_done, bc);
 }
 
@@ -219,7 +219,7 @@ bs_read_complete(void *args, struct spdk_blob_store *bs, int bserrno){
 
   SPDK_INFOLOG(blob_log, "blobstore read done\n");
   if (bserrno == 0) {
-    SPDK_INFOLOG(blob_log, "There is data on the disk.\n"); 
+    SPDK_INFOLOG(blob_log, "There is data on the disk.\n");
 
     std::construct_at(&g_bs_mgr);
     g_bs_mgr.blobstore = bs;
@@ -245,7 +245,7 @@ bs_read_complete(void *args, struct spdk_blob_store *bs, int bserrno){
     delete ctx;
     return;
   }
-  
+
   SPDK_INFOLOG(blob_log, "blobstore init...\n");
   spdk_bs_init(bs_dev, &opts, bs_init_complete, ctx);
 }
@@ -257,7 +257,7 @@ struct blobstore_context{
   int serror;
 };
 
-static void 
+static void
 _blobstore_init(bm_complete cb_fn, void* args, std::string &bdev_name, std::string &uuid){
   struct spdk_bs_dev *bs_dev = NULL;
   int rc = spdk_bdev_create_bs_dev_ext(bdev_name.c_str(), fb_event_cb, NULL, &bs_dev);
@@ -292,7 +292,7 @@ static void blobstore_op_done(blobstore_context *ctx){
 static void
 _blobstore_init(std::string bdev_name, std::string uuid, bm_complete cb_fn, void* args, spdk_thread *thread) {
   SPDK_INFOLOG(blob_log, "blobstore init, thread id %lu\n", utils::get_spdk_thread_id());
-  
+
   blobstore_context *ctx = new blobstore_context{.cb_fn = std::move(cb_fn), .arg = args, .thread = thread};
   _blobstore_init([](void *arg, int serror){
     blobstore_context *ctx = (blobstore_context *)arg;
@@ -311,14 +311,14 @@ blobstore_init(std::string &bdev_name, const std::string& uuid, bm_complete cb_f
     raft在读写log核对象数据之前会先使用bs_open_blob打开blob，为了保证在debug模式下正常运行，应该让raft的spdk线程与blobstore的spdk线程
     相同。
   */
-  //这里先支持单核    
+  //这里先支持单核
   auto cur_thread = spdk_get_thread();
   shard.invoke_on(
     0,
     [bdev_name = bdev_name, uuid, cb_fn, args, cur_thread](){
       _blobstore_init(bdev_name, std::move(uuid), cb_fn, args, cur_thread);
     }
-  );  
+  );
 }
 
 /**
@@ -345,19 +345,19 @@ void parse_log_xattr(struct spdk_blob *blob) {
   int rc;
 
   rc = spdk_blob_get_xattr_value(blob, "shard", (const void **)&shard_id, &len);
-  if (rc < 0) 
+  if (rc < 0)
     return;
   // SPDK_NOTICELOG("blob id %lu has shard_id: %u\n", spdk_blob_get_id(blob), (*shard_id));
-  
+
 
   rc = spdk_blob_get_xattr_value(blob, "pg", (const void **)&value, &len);
-  if (rc < 0) 
+  if (rc < 0)
     return;
   pg = std::string(value, len);
   SPDK_INFOLOG(blob_log, "log xattr, blob id %lu shard_id %u  pg  %s \n", spdk_blob_get_id(blob), *shard_id, pg.c_str());
 
   if (*shard_id > g_bs_mgr.blobs.size())  return;
-  SPDK_INFOLOG(blob_log, "log blob, blob id %ld blob size %lu\n", spdk_blob_get_id(blob), 
+  SPDK_INFOLOG(blob_log, "log blob, blob id %ld blob size %lu\n", spdk_blob_get_id(blob),
           spdk_blob_get_num_clusters(blob) * spdk_bs_get_cluster_size(global_blobstore()));
   g_bs_mgr.blobs.on_shard(*shard_id).log_blobs[pg] = blob;
 }
@@ -375,7 +375,7 @@ void parse_object_xattr(struct spdk_blob *blob) {
   rc = spdk_blob_get_xattr_value(blob, "pg", (const void **)&value, &len);
   if (rc < 0) return;
   pg = std::string(value, len);
-  
+
   if (*shard_id > g_bs_mgr.blobs.size())  return;
   auto [pg_it, _] = g_bs_mgr.blobs.on_shard(*shard_id).object_blobs.try_emplace(pg);
 
@@ -392,17 +392,17 @@ void parse_object_xattr(struct spdk_blob *blob) {
   }else if(spdk_blob_get_xattr_value(blob, "snap", (const void **)&value, &len) == 0){
       snap_name = std::string(value, len);
       object_store::snap snapshot;
-      snapshot.snap_blob.blobid = spdk_blob_get_id(blob); 
+      snapshot.snap_blob.blobid = spdk_blob_get_id(blob);
       snapshot.snap_blob.blob = blob;
       snapshot.snap_name = snap_name;
-      object.snap_list.emplace_back(std::move(snapshot));   
+      object.snap_list.emplace_back(std::move(snapshot));
   }else{
       object.origin.blob = blob;
-      object.origin.blobid = spdk_blob_get_id(blob);    
+      object.origin.blobid = spdk_blob_get_id(blob);
   }
 
-  SPDK_INFOLOG(blob_log, "blob id %lu shard_id %u pg %s obj_name %s  snap_name %s recover_name %s\n", 
-          spdk_blob_get_id(blob), *shard_id, pg.c_str(), obj_name.c_str(), snap_name.c_str(), 
+  SPDK_INFOLOG(blob_log, "blob id %lu shard_id %u pg %s obj_name %s  snap_name %s recover_name %s\n",
+          spdk_blob_get_id(blob), *shard_id, pg.c_str(), obj_name.c_str(), snap_name.c_str(),
           recover_name.c_str());
 }
 
@@ -467,9 +467,9 @@ static void parse_blob_xattr(void *arg, struct spdk_blob *blob, int rberrno){
       break;
     default:
       break;
-  }  
+  }
   ctx->cb_fn(ctx->args, 0);
-  delete ctx;  
+  delete ctx;
 }
 
 void parse_open_blob_xattr(struct spdk_blob *blob, bm_complete cb_fn, void* args){
@@ -507,7 +507,7 @@ void parse_open_blob_xattr(struct spdk_blob *blob, bm_complete cb_fn, void* args
 
 static void
 blob_iter_complete(void *args, struct spdk_blob *blob, int bserrno)
-{ 
+{
   auto err_hand = [](void *arg, int berrno){
     if (berrno) {
       struct bm_context *ctx = (struct bm_context *)arg;
@@ -548,7 +548,7 @@ static void close_super_complete(void *cb_arg, int bserrno){
     ctx->cb_fn(ctx->args, bserrno);
     delete ctx;
     return;
-  }  
+  }
 
   SPDK_INFOLOG(blob_log, "close super blob done\n");
   // 读取每个blob的xattr，放入map中，准备还原blob运行状态
@@ -608,7 +608,7 @@ static void get_super_complete(void *cb_arg, spdk_blob_id blobid, int bserrno){
 
 static void
 bs_load_complete(void *args, struct spdk_blob_store *bs, int bserrno)
-{ 
+{
   struct bm_context *ctx = (struct bm_context *)args;
   uint64_t free = 0;
 
@@ -667,14 +667,14 @@ _blobstore_load(std::string bdev_name, bm_complete cb_fn, void* args, std::strin
 void
 blobstore_load(std::string &bdev_name, bm_complete cb_fn, void* args, std::string *osd_uuid){
   auto &shard = core_sharded::get_core_sharded();
-  
+
   auto cur_thread = spdk_get_thread();
   shard.invoke_on(
     0,
     [bdev_name = bdev_name, osd_uuid, cb_fn, args, cur_thread](){
       _blobstore_load(bdev_name, cb_fn, args, osd_uuid, cur_thread);
     }
-  );    
+  );
 }
 
 /**
@@ -682,7 +682,7 @@ blobstore_load(std::string &bdev_name, bm_complete cb_fn, void* args, std::strin
  */
 static void
 bs_fini_complete(void *args, int bserrno)
-{ 
+{
   struct bm_context *ctx = (struct bm_context *)args;
 
   if (bserrno) {
@@ -739,5 +739,5 @@ blobstore_fini(bm_complete cb_fn, void* args){
     [cb_fn, args, cur_thread](){
       _blobstore_fini(cb_fn, args, cur_thread);
     }
-  );    
+  );
 }

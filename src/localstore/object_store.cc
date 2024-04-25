@@ -9,6 +9,7 @@
  * See the Mulan PSL v2 for more details.
  */
 
+#include "object_name.h"
 #include "object_store.h"
 #include "base/core_sharded.h"
 
@@ -124,20 +125,20 @@ object_get_xattr_value(void *arg, const char *name, const void **value, size_t *
 		return;
   } else if(!strcmp("type", name)){
 		*value = &(ctx->type);
-		*value_len = sizeof(ctx->type);    
-    return; 
+		*value_len = sizeof(ctx->type);
+    return;
 	} else if(!strcmp("shard", name)){
 		*value = &(ctx->shard_id);
-		*value_len = sizeof(ctx->shard_id); 
-    return;   
+		*value_len = sizeof(ctx->shard_id);
+    return;
   } else if(!strcmp("pg", name)){
 		*value = ctx->pg.c_str();
-		*value_len = ctx->pg.size();    
-    return; 
+		*value_len = ctx->pg.size();
+    return;
   } else if(!strcmp("name", name)){
 		*value = ctx->object_name.c_str();
-		*value_len = ctx->object_name.size(); 
-    return; 
+		*value_len = ctx->object_name.size();
+    return;
   }
 	*value = NULL;
 	*value_len = 0;
@@ -153,24 +154,24 @@ snapshot_get_xattr_value(void *arg, const char *name, const void **value, size_t
 		return;
   } else if(!strcmp("type", name)){
 		*value = &(ctx->type);
-		*value_len = sizeof(ctx->type);    
-    return; 
+		*value_len = sizeof(ctx->type);
+    return;
 	} else if(!strcmp("shard", name)){
 		*value = &(ctx->shard_id);
-		*value_len = sizeof(ctx->shard_id); 
-    return;   
+		*value_len = sizeof(ctx->shard_id);
+    return;
   } else if(!strcmp("pg", name)){
 		*value = ctx->pg.c_str();
-		*value_len = ctx->pg.size();    
-    return; 
+		*value_len = ctx->pg.size();
+    return;
   } else if(!strcmp("name", name)){
 		*value = ctx->object_name.c_str();
-		*value_len = ctx->object_name.size(); 
-    return; 
+		*value_len = ctx->object_name.size();
+    return;
 	} else if(!strcmp("snap", name)){
 		*value = ctx->snap_name.c_str();
-		*value_len = ctx->snap_name.size(); 
-    return;     
+		*value_len = ctx->snap_name.size();
+    return;
 	}
 	*value = NULL;
 	*value_len = 0;
@@ -186,24 +187,24 @@ recovery_get_xattr_value(void *arg, const char *name, const void **value, size_t
 		return;
   } else if(!strcmp("type", name)){
 		*value = &(ctx->type);
-		*value_len = sizeof(ctx->type);    
-    return; 
+		*value_len = sizeof(ctx->type);
+    return;
 	} else if(!strcmp("shard", name)){
 		*value = &(ctx->shard_id);
-		*value_len = sizeof(ctx->shard_id); 
-    return;   
+		*value_len = sizeof(ctx->shard_id);
+    return;
   } else if(!strcmp("pg", name)){
 		*value = ctx->pg.c_str();
-		*value_len = ctx->pg.size();    
-    return; 
+		*value_len = ctx->pg.size();
+    return;
   } else if(!strcmp("name", name)){
 		*value = ctx->object_name.c_str();
-		*value_len = ctx->object_name.size(); 
-    return; 
+		*value_len = ctx->object_name.size();
+    return;
 	} else if(!strcmp("recover", name)){
 		*value = ctx->object_name.c_str();
-		*value_len = ctx->object_name.size(); 
-    return;     
+		*value_len = ctx->object_name.size();
+    return;
   }
 	*value = NULL;
 	*value_len = 0;
@@ -223,7 +224,7 @@ void object_store::read(std::map<std::string, xattr_val_type>& xattr, std::strin
     readwrite(xattr, object_name, offset, buf, len, cb_fn, arg, 1);
 }
 
-void object_store::snap_create(std::map<std::string, xattr_val_type>& xattr, std::string object_name, 
+void object_store::snap_create(std::map<std::string, xattr_val_type>& xattr, std::string object_name,
         std::string snap_name, object_rw_complete cb_fn, void* arg) {
   struct snap_create_ctx* ctx;
   auto it = table.find(object_name);
@@ -243,14 +244,14 @@ void object_store::snap_create(std::map<std::string, xattr_val_type>& xattr, std
   auto item = xattr.begin();
   while(item != xattr.end()){
     if(item->first == "type"){
-      ctx->type = std::get<blob_type>(item->second);  
+      ctx->type = std::get<blob_type>(item->second);
     }else if(item->first == "pg"){
       ctx->pg = std::get<std::string>(item->second);
     }
     item++;
-  }  
+  }
   uint32_t shard_id = core_sharded::get_core_sharded().this_shard_id();
-  ctx->shard_id = shard_id;  
+  ctx->shard_id = shard_id;
 
   //调用spdk的spdk_bs_create_snapshot函数，创建快照，并通过snap_done返回创建的结果。
   struct spdk_blob_xattr_opts snapshot_xattrs;
@@ -367,12 +368,12 @@ void object_store::recovery_create(std::map<std::string, xattr_val_type>& xattr,
   auto item = xattr.begin();
   while(item != xattr.end()){
     if(item->first == "type"){
-      ctx->type = std::get<blob_type>(item->second);  
+      ctx->type = std::get<blob_type>(item->second);
     }else if(item->first == "pg"){
       ctx->pg = std::get<std::string>(item->second);
     }
     item++;
-  }  
+  }
   uint32_t shard_id = core_sharded::get_core_sharded().this_shard_id();
   ctx->shard_id = shard_id;
 
@@ -576,7 +577,7 @@ void object_store::readwrite(std::map<std::string, xattr_val_type>& xattr, std::
         auto it = xattr.begin();
         while(it != xattr.end()){
           if(it->first == "type"){
-            ctx->type = std::get<blob_type>(it->second);  
+            ctx->type = std::get<blob_type>(it->second);
           }else if(it->first == "pg"){
             ctx->pg = std::get<std::string>(it->second);
           }

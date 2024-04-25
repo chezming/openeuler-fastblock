@@ -521,8 +521,8 @@ private:
         osd_info->leader_id = resp->leader_id();
         osd_info->addr = resp->leader_addr();
         osd_info->port = resp->leader_port();
-        SPDK_DEBUGLOG(libblk, "Got leader osd of pg %lu.%lu: osd id %d osd address: '%s:%d'\n", 
-                it->second->leader_req->pool_id(), it->second->leader_req->pg_id(), osd_info->leader_id, 
+        SPDK_DEBUGLOG(libblk, "Got leader osd of pg %lu.%lu: osd id %d osd address: '%s:%d'\n",
+                it->second->leader_req->pool_id(), it->second->leader_req->pg_id(), osd_info->leader_id,
                 osd_info->addr.c_str(), osd_info->port);
 
         update_leader_state(info_it->second.get());
@@ -551,7 +551,7 @@ private:
 public:
 
     int write_object(
-      std::string object_name,
+      std::string image_name,
       uint64_t offset,
       const std::string &buf,
       int32_t target_pool_id,
@@ -562,7 +562,7 @@ public:
         auto req = std::make_unique<osd::write_request>();
         req->set_pool_id(target_pool_id);
         req->set_pg_id(target_pg);
-        req->set_object_name(object_name);
+        req->set_image_name(image_name);
         req->set_offset(offset);
         req->set_data(buf);
         send_request(target_pool_id, target_pg, std::move(req), cb_fn, source);

@@ -45,6 +45,19 @@ var (
 	totalRPS    prometheus.Gauge
 )
 
+func writeResponse(ctx context.Context, response *msg.Response, conn net.Conn) {
+	responseData, err := proto.Marshal(response)
+	if err != nil {
+		log.Error(ctx, "Error marshaling response:", err)
+		return
+	}
+
+	_, err = conn.Write(responseData)
+	if err != nil {
+		log.Error(ctx, "Error writing response:", err)
+	}
+}
+
 func handleConnection(ctx context.Context, conn net.Conn, client *etcdapi.EtcdClient) {
 	defer conn.Close()
 
@@ -562,6 +575,53 @@ func handleConnection(ctx context.Context, conn net.Conn, client *etcdapi.EtcdCl
 					log.Error(ctx, "Error writing response:", err)
 					return
 				}
+			case *msg.Request_CreateSnapshotRequest:
+				log.Info(ctx, "Received CreateSnapshotRequest")
+
+				poolName := payload.CreateSnapshotRequest.GetPoolname()
+				imageName := payload.CreateSnapshotRequest.GetImagename()
+				snapName := payload.CreateSnapshotRequest.GetSnapname()
+				errCode, snapID := osd.ProcessCreateSnapshotMessage(ctx, client, imageName, poolName, snapName)
+
+				response := &msg.Response{
+					Union: &msg.Response_CreateSnapshotResponse{
+						CreateSnapshotResponse: &msg.CreateSnapshotResponse{
+							Errorcode:  errCode,
+							SnapshotId: snapID,
+						},
+					},
+				}
+				writeResponse(ctx, response, conn)
+			case *msg.Request_ListSnapshotRequest:
+				log.Info(ctx, "Received ListSnapshotRequest")
+				poolname := payload.ListSnapshotRequest.GetPoolname()
+				imageName := payload.ListSnapshotRequest.GetImagename()
+				errCode, snaps := osd.ProcessListSnapshotMessage(ctx, client, imageName, poolname)
+
+				response := &msg.Response{
+					Union: &msg.Response_ListSnapshotResponse{
+						ListSnapshotResponse: &msg.ListSnapshotResponse{
+							Errorcode: errCode,
+							Snapshots: snaps,
+						},
+					},
+				}
+				writeResponse(ctx, response, conn)
+			case *msg.Request_DeleteSnapshotRequest:
+				log.Info(ctx, "Received DeleteSnapshotRequest")
+
+				poolName := payload.DeleteSnapshotRequest.GetPoolname()
+				imageName := payload.DeleteSnapshotRequest.GetImagename()
+				snapName := payload.DeleteSnapshotRequest.GetSnapname()
+
+				response := &msg.Response{
+					Union: &msg.Response_DeleteSnapshotResponse{
+						DeleteSnapshotResponse: &msg.DeleteSnapshotResponse{
+							Errorcode: osd.ProcessDeleteSnapshotMessage(ctx, client, imageName, poolName, snapName),
+						},
+					},
+				}
+				writeResponse(ctx, response, conn)
 			default:
 				log.Info(ctx, "Unknown payload type")
 			}

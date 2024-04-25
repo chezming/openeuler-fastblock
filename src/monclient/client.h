@@ -59,6 +59,16 @@ public:
         size_t object_size{};
     };
 
+    struct snapshot_info {
+        uint64_t id{};
+        std::string name{};
+    };
+
+    struct image_snapshot_info {
+        image_info image{};
+        std::list<snapshot_info> snapshots{};
+    };
+
     struct pools {
         struct pool {
             int32_t pool_id;
@@ -426,6 +436,9 @@ public:
 
     void emplace_list_pool_request(on_response_callback_type&& cb);
 
+    void emplace_list_snapshot_request(
+      const std::string pool_name, const std::string image_name, on_response_callback_type&& cb);
+
     void handle_emplace_request(request_context*);
     void send_cluster_map_request();
     bool core_poller_handler();
@@ -458,6 +471,7 @@ private:
     inline response_status to_response_status(const msg::RemoveImageErrorCode) noexcept;
     inline response_status to_response_status(const msg::ResizeImageErrorCode) noexcept;
     inline response_status to_response_status(const msg::GetImageErrorCode) noexcept;
+    inline response_status to_response_status(const msg::ListSnapshotErrorCode) noexcept;
     void process_pg_map(const msg::GetPgMapResponse& pg_map_response);
     void process_osd_map(std::shared_ptr<msg::Response> response);
     void process_clustermap_response(std::shared_ptr<msg::Response> response);

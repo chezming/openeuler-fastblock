@@ -45,6 +45,8 @@ var imageName *string
 var imagesize *int
 var object_size *int
 
+var snap_name *string
+
 var osdmapversion int64
 var myosdmap []*msg.OsdDynamicInfo
 var mypgmap map[int32]*msg.PGInfos
@@ -55,6 +57,19 @@ var poolpgmapversion map[int32]int64
 type ResponseChanData struct {
 	uuid  string
 	osdid int32
+}
+
+func sendClientRequest(request *msg.Request, conn net.Conn) {
+	data, err := proto.Marshal(request)
+	if err != nil {
+		log.Println("Error marshaling CreateSnapshotRequest:", err)
+		return
+	}
+
+	_, err = conn.Write(data)
+	if err != nil {
+		log.Println("Error sending CreateSnapshotRequest:", err)
+	}
 }
 
 func clientHandleResponses(ctx context.Context, conn net.Conn, stopChan chan<- struct{}, responseChan chan<- ResponseChanData) {
@@ -341,6 +356,37 @@ func clientHandleResponses(ctx context.Context, conn net.Conn, stopChan chan<- s
 					imagemap[getimageinfo.Imagename] = getimageinfo
 				}
 				fmt.Printf("Imagename: %s  get info imagename: %s  Poolname: %s  Size: %d   Objectsize: %d  \n", *imageName, getimageinfo.Imagename, getimageinfo.Poolname, getimageinfo.Size_, getimageinfo.ObjectSize)
+				stopChan <- struct{}{}
+				return
+			case *msg.Response_CreateSnapshotResponse:
+				ok := payload.CreateSnapshotResponse.GetErrorcode()
+				if ok != msg.CreateSnapshotErrorCode_createSnapshotOk {
+					fmt.Printf("create snapshot '%s' failed, %s\n", *snap_name, ok.String())
+					stopChan <- struct{}{}
+					return
+				}
+				fmt.Printf("Snapshot: %s, ID: %d\n", *snap_name, payload.CreateSnapshotResponse.GetSnapshotId())
+				stopChan <- struct{}{}
+				return
+			case *msg.Response_ListSnapshotResponse:
+				ok := payload.ListSnapshotResponse.GetErrorcode()
+				if ok != msg.ListSnapshotErrorCode_listSnapshotOk {
+					fmt.Printf("list snapshot of image %s failed, %s\n", *imageName, ok.String())
+					stopChan <- struct{}{}
+					return
+				}
+				for _, snap := range payload.ListSnapshotResponse.GetSnapshots() {
+					fmt.Printf("snapshotid: %s, name: %s\n", snap.SnapshotId, snap.SnapshotName)
+				}
+				stopChan <- struct{}{}
+				return
+			case *msg.Response_DeleteSnapshotResponse:
+				ok := payload.DeleteSnapshotResponse.GetErrorcode()
+				if ok != msg.DeleteSnapshotErrorCode_deleteSnapshotOk {
+					fmt.Printf("delete snapshot '%s' failed, %s\n", *snap_name, ok.String())
+				} else {
+					fmt.Printf("delete snapshot '%s' done\n", *snap_name)
+				}
 				stopChan <- struct{}{}
 				return
 			default:
@@ -898,11 +944,95 @@ func ClientSendGetImageRequest(conn net.Conn, stopChan chan<- struct{}) {
 	}
 }
 
+func ClientSendCreateSnapshotRequest(conn net.Conn, stopChan chan<- struct{}) {
+	if len(*snap_name) == 0 {
+		fmt.Println("request need snapshot name")
+		stopChan <- struct{}{}
+		return
+	}
+
+	if len(*imageName) == 0 {
+		fmt.Println("request need imagename ")
+		stopChan <- struct{}{}
+		return
+	}
+	if len(*poolname) == 0 {
+		fmt.Println(" need  poolname  ")
+		stopChan <- struct{}{}
+		return
+	}
+
+	request := &msg.Request{
+		Union: &msg.Request_CreateSnapshotRequest{
+			CreateSnapshotRequest: &msg.CreateSnapshotRequest{
+				Poolname:  *poolname,
+				Imagename: *imageName,
+				Snapname:  *snap_name,
+			},
+		},
+	}
+
+	sendClientRequest(request, conn)
+}
+
+func ClientSendListSnapshotRequest(conn net.Conn, stopChan chan<- struct{}) {
+	if len(*imageName) == 0 {
+		fmt.Println("request need imagename ")
+		stopChan <- struct{}{}
+		return
+	}
+	if len(*poolname) == 0 {
+		fmt.Println(" need  poolname  ")
+		stopChan <- struct{}{}
+		return
+	}
+
+	request := &msg.Request{
+		Union: &msg.Request_ListSnapshotRequest{
+			ListSnapshotRequest: &msg.ListSnapshotRequest{
+				Poolname:  *poolname,
+				Imagename: *imageName,
+			},
+		},
+	}
+	sendClientRequest(request, conn)
+}
+
+func ClientSendDeleteSnapshotRequest(conn net.Conn, stopChan chan<- struct{}) {
+	if len(*snap_name) == 0 {
+		fmt.Println("request need snapshot name")
+		stopChan <- struct{}{}
+		return
+	}
+
+	if len(*imageName) == 0 {
+		fmt.Println("request need imagename ")
+		stopChan <- struct{}{}
+		return
+	}
+	if len(*poolname) == 0 {
+		fmt.Println(" need  poolname  ")
+		stopChan <- struct{}{}
+		return
+	}
+
+	request := &msg.Request{
+		Union: &msg.Request_DeleteSnapshotRequest{
+			DeleteSnapshotRequest: &msg.DeleteSnapshotRequest{
+				Poolname:  *poolname,
+				Imagename: *imageName,
+				Snapname:  *snap_name,
+			},
+		},
+	}
+	sendClientRequest(request, conn)
+}
+
 func main() {
 	// (TODO)write command line args parse code
 	// Define the command line arguments
 	monitor_endpoint = flag.String("endpoint", "127.0.0.1:3333", "monitor server endpoint")
-	op = flag.String("op", "", "supported: watchclustermap, getclustermap, fakeapplyid, fakebootosd, fakestartcluster, createpool,deletepool,listpools, getosdmap, getpgmap, watchosdmap, watchpgmap, fakestoposd, createimage, removeimage, resizeimage, getimage")
+	op = flag.String("op", "", "supported: watchclustermap, getclustermap, fakeapplyid, fakebootosd, fakestartcluster, createpool,deletepool,listpools, getosdmap, getpgmap, watchosdmap, watchpgmap, fakestoposd, createimage, removeimage, resizeimage, getimage, createsnapshot, listsnapshot, deletesnapshot")
 
 	poolname = flag.String("poolname", "", "pool name you want to get")
 	osdid = flag.Int("osdid", 0, "osd id to boot")
@@ -920,12 +1050,13 @@ func main() {
 	//poolname = flag.String("poolname", 0, "pool id you want operate")
 	imagesize = flag.Int("imagesize", 0, "image size")
 	object_size = flag.Int("objectsize", 4194304, "object size")
+	snap_name = flag.String("snapname", "", "snapshot name")
 
 	// Parse the command line arguments
 	flag.Parse()
 	if *op != "watchclustermap" && *op != "getclustermap" && *op != "createpool" && *op != "getosdmap" && *op != "getpgmap" && *op != "listpools" &&
 		*op != "fakeapplyid" && *op != "fakebootosd" && *op != "fakestartcluster" &&
-		*op != "watchosdmap" && *op != "watchpgmap" && *op != "fakestoposd" && *op != "deletepool" && *op != "createimage" && *op != "removeimage" && *op != "resizeimage" && *op != "getimage" {
+		*op != "watchosdmap" && *op != "watchpgmap" && *op != "fakestoposd" && *op != "deletepool" && *op != "createimage" && *op != "removeimage" && *op != "resizeimage" && *op != "getimage" && *op != "createsnapshot" && *op != "listsnapshot" && *op != "deletesnapshot" {
 		log.Fatal("unsupported operation")
 	}
 
@@ -1036,6 +1167,12 @@ func main() {
 	case "getimage":
 		//fmt.Println("get image")
 		go ClientSendGetImageRequest(conn, stopChan)
+	case "createsnapshot":
+		go ClientSendCreateSnapshotRequest(conn, stopChan)
+	case "listsnapshot":
+		go ClientSendListSnapshotRequest(conn, stopChan)
+	case "deletesnapshot":
+		go ClientSendDeleteSnapshotRequest(conn, stopChan)
 	}
 
 	go clientHandleResponses(ctx, conn, stopChan, responseChan)

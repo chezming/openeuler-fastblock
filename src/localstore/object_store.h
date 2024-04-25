@@ -40,11 +40,7 @@ public:
   : bs(bs)
   , channel(channel) { }
 
-  ~object_store(){
-  //   // for (auto& pr : table) {
-  //   //   delete pr.second;
-  //   // }
-  }
+  ~object_store() noexcept = default;
 
   /**
    * 由于要直接读写blob，这里的buf务必用spdk_malloc申请。len的单位是字节，而不是io unit。
@@ -64,8 +60,8 @@ public:
 
   void snap_delete(std::string object_name, std::string snap_name,
                    object_rw_complete cb_fn, void* arg);
-    
-  void recovery_create(std::map<std::string, xattr_val_type>& xattr, std::string object_name, 
+
+  void recovery_create(std::map<std::string, xattr_val_type>& xattr, std::string object_name,
                  object_rw_complete cb_fn, void* arg);
 
   void recovery_read(std::string object_name, char* buf,
@@ -131,17 +127,27 @@ public:
     fb_blob         recover;
     std::list<snap> snap_list;
   };
+
+  struct object_key {
+    uint32_t pool_id;
+    uint64_t seq_no;
+  };
+
   //快照版本链表的结点。
   using container = absl::flat_hash_map<std::string, object>;
+  using image_name_type = std::string;
+  using object_containter_type = std::unordered_map<object_key, std::unique_ptr<object>>;
 
   void load(container objects){
       table = std::move(objects);
   }
-  
+
   using iterator = container::iterator;
   container table;
   struct spdk_blob_store *bs;       // 我们不掌握blob_store的生命周期
   struct spdk_io_channel *channel;  // 所以不用担心这两个指针的free
                             //obiect_store是管理所有块的类
   //std::map<std::string,std::list<snap_Node*>> snap_hashlist;//这个hash表时存储快照的链式hash。
+
+  std::unordered_map<image_name_type, object_containter_type> objects{};
 };

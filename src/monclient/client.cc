@@ -196,6 +196,20 @@ void client::emplace_list_pool_request(on_response_callback_type&& cb) {
     enqueue_request(ctx);
 }
 
+void client::emplace_list_snapshot_request(
+  const std::string pool_name,
+  const std::string image_name,
+  on_response_callback_type&& cb) {
+    auto req = std::make_unique<msg::Request>();
+    auto* real_req = req->mutable_list_snapshot_request();
+    real_req->set_poolname(pool_name);
+    real_req->set_imagename(image_name);
+
+    auto* ctx = new client::request_context{
+      this, std::move(req), std::monostate{}, std::move(cb)};
+    enqueue_request(ctx);
+}
+
 void client::handle_emplace_request(client::request_context* ctx) {
     _requests.push_back(std::unique_ptr<request_context>{ctx});
 }
@@ -282,10 +296,26 @@ client::to_response_status(const msg::GetImageErrorCode e) noexcept {
     }
 }
 
+client::response_status
+client::to_response_status(const msg::ListSnapshotErrorCode e) noexcept {
+    switch (e) {
+    case msg::ListSnapshotErrorCode::listSnapshotOk:
+        return client::response_status::ok;
+    case msg::ListSnapshotErrorCode::listSnapshotServerError:
+        return client::response_status::server_error;
+    case msg::ListSnapshotErrorCode::listSnapshotUnknownImageName:
+        return client::response_status::image_not_found;
+    case msg::ListSnapshotErrorCode::listSnapshotUnknownPoolName:
+        return client::response_status::unknown_pool_name;
+    default:
+        return client::response_status::unknown_server_status;
+    }
+}
+
 class change_membership_complete : public utils::context {
 public:
     friend client;
-    change_membership_complete(uint64_t pool_id, uint64_t pg_id, int64_t version, std::vector<int32_t> osds, client* cli) 
+    change_membership_complete(uint64_t pool_id, uint64_t pg_id, int64_t version, std::vector<int32_t> osds, client* cli)
     : _pool_id(pool_id)
     , _pg_id(pg_id)
     , _version(version)
@@ -334,7 +364,7 @@ void client::_create_pg(pg_map::pool_id_type pool_id, pg_map::version_type pool_
                 pit->osds.push_back(osd_id);
                 osd_str += std::to_string(osd_id) + ",";
             }
-            
+
             SPDK_DEBUGLOG(mon, "core [%u] pool: %d pg: %lu version: %ld  osd_list: %s\n",
               ::spdk_env_get_current_core(), pool_id, pit->pg_id, pit->version, osd_str.data());
 
@@ -348,7 +378,7 @@ void client::_create_pg(pg_map::pool_id_type pool_id, pg_map::version_type pool_
         pit->version = info.version();
         std::string osd_str;
         for (auto osd_id : info.osdid()){
-            pit->osds.push_back(osd_id); 
+            pit->osds.push_back(osd_id);
             osd_str += std::to_string(osd_id) + ",";
         }
         SPDK_DEBUGLOG(mon, "core [%u] pool: %d pg: %lu version: %ld  osd_list: %s\n",
@@ -396,7 +426,7 @@ void client::process_pg_map(const msg::GetPgMapResponse& pg_map_response) {
                         SPDK_DEBUGLOG(mon, "delete pool %d success.\n", pool_id);
                     }
                 };
-                
+
                 _pg_map.set_pool_update(pool_id, pg_id, pool_version, 1);
                 _pm.lock()->delete_partition(pool_id, pg_id, std::move(delete_pg_done), nullptr);
             }
@@ -459,7 +489,7 @@ void client::process_pg_map(const msg::GetPgMapResponse& pg_map_response) {
 
             for (auto& info : info_it->second.pi()){
                 if(not _pg_map.pool_pg_map[pool_key].contains(info.pgid())){
-                    _create_pg(pool_key, pv.at(pool_key), info); 
+                    _create_pg(pool_key, pv.at(pool_key), info);
                 }
             }
             continue;
@@ -471,7 +501,7 @@ void client::process_pg_map(const msg::GetPgMapResponse& pg_map_response) {
                 SPDK_DEBUGLOG(mon, "Cant find the info of pg %d\n", pool_key);
                 continue;
             }
-            
+
             SPDK_INFOLOG(mon, "pool %d version: %ld pool_version: %ld\n", pool_key, pv.at(pool_key), _pg_map.pool_version[pool_key]);
             for (auto& info : info_it->second.pi()) {
                 auto pgid = info.pgid();
@@ -491,7 +521,7 @@ void client::process_pg_map(const msg::GetPgMapResponse& pg_map_response) {
                         new_osds.emplace_back(*osd_info);
                     }
 
-                    SPDK_INFOLOG(mon, "pool: %d version: %ld pg: %lu version: %ld  osd_list: %s\n", 
+                    SPDK_INFOLOG(mon, "pool: %d version: %ld pg: %lu version: %ld  osd_list: %s\n",
                             pool_key, pv.at(pool_key), pit->pg_id, info.version(), osd_str.data());
 
                     auto complete = new change_membership_complete(pool_key, pgid, info.version(), osds, this);
@@ -582,12 +612,12 @@ void client::process_osd_map(std::shared_ptr<msg::Response> response) {
               osds[i].isup() and osds[i].osdid() != _self_osd_id;
 
             if(should_create_connect || osds[i].osdid() == _self_osd_id){
-                SPDK_DEBUGLOG(mon, 
+                SPDK_DEBUGLOG(mon,
                   "osd %d not found, rsp osd isup %d, should_create_connect is %d\n",
                   osds[i].osdid(),
                   osds[i].isup(),
                   should_create_connect);
-    
+
                 auto osd_info = std::make_unique<utils::osd_info_t>(
                   osds[i].osdid(),
                   osds[i].isin(),
@@ -595,7 +625,7 @@ void client::process_osd_map(std::shared_ptr<msg::Response> response) {
                   osds[i].ispendingcreate(),
                   osds[i].port(),
                   osds[i].address());
-    
+
                 auto [it, _] = _osd_map.data.emplace(osd_info->node_id, std::move(osd_info));
                 osd_it = it;
             }else{
@@ -604,7 +634,7 @@ void client::process_osd_map(std::shared_ptr<msg::Response> response) {
         }
 
         auto& osd_info = *(osd_it->second);
-        SPDK_DEBUGLOG(mon, 
+        SPDK_DEBUGLOG(mon,
           "osd id %d, is up %d, port %d, address %s, rsp is up %d\n",
           osd_info.node_id,
           osd_info.isup,
@@ -653,9 +683,9 @@ void client::process_osd_map(std::shared_ptr<msg::Response> response) {
             }
         );
 
-        if (it != osds.end()) { 
+        if (it != osds.end()) {
             data_it++;
-            continue; 
+            continue;
         }
 
         auto node_id = data_it->first;
@@ -814,6 +844,13 @@ void client::process_response(std::shared_ptr<msg::Response> response) {
         req_ctx->response_data = std::move(pools_info);
         req_ctx->cb(response_status::ok, req_ctx.get());
         _on_flight_requests.pop_front();
+        break;
+    }
+    case msg::Response::UnionCase::kListSnapshotResponse: {
+        SPDK_DEBUGLOG(mon, "Received list snapshots response\n");
+        auto& response_snaps = response->list_snapshot_response().snapshots();
+
+        SPDK_DEBUGLOG(mon, "List snapshot size is %d\n", response_snaps.size());
         break;
     }
     default:

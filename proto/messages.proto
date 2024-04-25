@@ -227,6 +227,68 @@ message GetImageInfoResponse{
     ImageInfo ImageInfo=2;
 }
 
+message CreateSnapshotRequest {
+    string poolname = 1;
+    string imagename = 2;
+    string snapname = 3;
+}
+
+enum CreateSnapshotErrorCode {
+    createSnapshotOk = 0;
+    createSnapshotExisted = 1;
+    createSnapshotUnknownPoolName = 2;
+    createSnapshotUnknownImageName = 3;
+    createSnapshotIDError = 4;
+    createSnapshotPutEtcdError = 5;
+    createSnapshotGetEtcdError = 6;
+    createSnapshotDeleteEtcdError = 7;
+}
+
+message CreateSnapshotResponse {
+    CreateSnapshotErrorCode errorcode = 1;
+    int64 snapshotId = 2;
+}
+
+message ListSnapshotRequest {
+    string poolname = 1;
+    string imagename = 2;
+}
+
+enum ListSnapshotErrorCode {
+    listSnapshotOk = 0;
+    listSnapshotServerError = 1;
+    listSnapshotUnknownPoolName = 2;
+    listSnapshotUnknownImageName = 3;
+}
+
+message SnapshotInfo {
+    string snapshotId = 1;
+    string snapshotName = 2;
+}
+
+message ListSnapshotResponse {
+    ListSnapshotErrorCode errorcode = 1;
+    repeated SnapshotInfo snapshots = 2;
+}
+
+message DeleteSnapshotRequest {
+    string poolname = 1;
+    string imagename = 2;
+    string snapname = 3;
+}
+
+enum DeleteSnapshotErrorCode {
+    deleteSnapshotOk = 0;
+    deleteSnapshotNotFound = 1;
+    deleteSnapshotUnknownPoolName = 2;
+    deleteSnapshotUnknownImageName = 3;
+    deleteSnapshotError = 4;
+}
+
+message DeleteSnapshotResponse {
+    DeleteSnapshotErrorCode errorcode = 1;
+}
+
 message Request {
     oneof union {
         BootRequest boot_request = 1;
@@ -243,7 +305,9 @@ message Request {
         RemoveImageRequest remove_image_request=12;
         ResizeImageRequest resize_image_request=13;
         GetImageInfoRequest get_ImageInfo_Request=14;
-
+        CreateSnapshotRequest create_snapshot_request=15;
+        ListSnapshotRequest list_snapshot_request=16;
+        DeleteSnapshotRequest delete_snapshot_request=17;
     }
 }
 
@@ -263,5 +327,8 @@ message Response {
         RemoveImageResponse remove_image_response=12;
         ResizeImageResponse resize_image_response=13;
         GetImageInfoResponse get_imageInfo_response=14;
+        CreateSnapshotResponse create_snapshot_response=15;
+        ListSnapshotResponse list_snapshot_response=16;
+        DeleteSnapshotResponse delete_snapshot_response=17;
     }
 }

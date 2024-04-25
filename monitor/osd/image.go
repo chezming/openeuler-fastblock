@@ -22,6 +22,11 @@ import (
 	"strings"
 )
 
+type Snapshot struct {
+	SnapshotID   string `json:"snapshotID,omitempty"`
+	SnapshotName string `json:"snapshotName,omitempty"`
+}
+
 type ImageConfig struct {
 	ImageID    int32  `json:"imageID,omitempty"`
 	Imagename  string `json:"imagename,omitempty"`
@@ -34,9 +39,79 @@ type ImageConfig struct {
 var Allimages map[int32]*ImageConfig
 
 var lastImageId int32 = 0
+var latestSnapIDKey = "/config/snapshot/latest_id"
+var snapshotPrefix = "/config/snapshot"
+var snapshotNameIndex = 5
 
 func findUsableImageId() int32 {
 	return int32(lastImageId + 1)
+}
+
+func isPoolExist(poolname string) bool {
+	for _, pc := range AllPools {
+		if poolname == pc.Name {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isImageExist(imagename string) bool {
+	for _, image := range Allimages {
+		if image.Imagename == imagename {
+			return true
+		}
+	}
+
+	return false
+}
+
+func findUsableSnapshotId(ctx context.Context, client *etcdapi.EtcdClient) (int64, error) {
+	id_str, err := client.Get(ctx, latestSnapIDKey)
+	latestID := int64(0)
+	if err == etcdapi.ErrorKeyNotFound {
+		err = client.Put(ctx, latestSnapIDKey, "1")
+		return latestID, err
+	}
+
+	if err != nil {
+		return latestID, err
+	}
+
+	latestID, err = strconv.ParseInt(id_str, 10, 64)
+	if err != nil {
+		return latestID, err
+	}
+
+	err = client.Put(ctx, latestSnapIDKey, strconv.FormatInt(latestID+1, 10))
+
+	return latestID, err
+}
+
+func formatSnapshotKey(pool string, image string, snapName string) string {
+	return fmt.Sprintf("%s/%s/%s/%s", snapshotPrefix, pool, image, snapName)
+}
+
+func formatSnapshotPrefix(pool string, image string) string {
+	return fmt.Sprintf("%s/%s/%s", snapshotPrefix, pool, image)
+}
+
+func snapshotFromKey(key string, id string) *msg.SnapshotInfo {
+	parts := strings.Split(key, "/")
+	return &msg.SnapshotInfo{
+		SnapshotId:   id,
+		SnapshotName: parts[snapshotNameIndex],
+	}
+}
+
+func snapshotsFromEtcdKeys(kvs []etcdapi.KeyValue) []*msg.SnapshotInfo {
+	result := make([]*msg.SnapshotInfo, len(kvs))
+	for i, value := range kvs {
+		result[i] = snapshotFromKey(value.Key, value.Value)
+	}
+
+	return result
 }
 
 func LoadImageConfig(ctx context.Context, client *etcdapi.EtcdClient) (err error) {
@@ -135,6 +210,84 @@ func ProcessCreateImageMessage(ctx context.Context, client *etcdapi.EtcdClient, 
 	Allimages[imageID] = imageConf
 	log.Info(ctx, "successfully put to ectd for newly image,name :%s ", imagename)
 	return msg.CreateImageErrorCode_createImageOk
+}
+
+func ProcessCreateSnapshotMessage(ctx context.Context, client *etcdapi.EtcdClient, imagename string, poolname string, snapname string) (msg.CreateSnapshotErrorCode, int64) {
+	if !isPoolExist(poolname) {
+		return msg.CreateSnapshotErrorCode_createSnapshotUnknownPoolName, -1
+	}
+
+	if !isImageExist(imagename) {
+		return msg.CreateSnapshotErrorCode_createSnapshotUnknownImageName, -1
+	}
+
+	snapID, err := findUsableSnapshotId(ctx, client)
+	if err != nil {
+		log.Error(ctx, "find usable snapshot id failed, ", err.Error())
+		return msg.CreateSnapshotErrorCode_createSnapshotIDError, snapID
+	}
+	snapKey := formatSnapshotKey(poolname, imagename, snapname)
+	_, err = client.Get(ctx, snapKey)
+	if err != etcdapi.ErrorKeyNotFound {
+		log.Error(ctx, "put snapshot '", snapKey, "' existed")
+		return msg.CreateSnapshotErrorCode_createSnapshotExisted, snapID
+	}
+	err = client.Put(ctx, snapKey, strconv.FormatInt(snapID, 10))
+	if err != nil {
+		log.Error(ctx, "put snapshot ", snapKey, " error, ", err.Error())
+		return msg.CreateSnapshotErrorCode_createSnapshotPutEtcdError, snapID
+	}
+
+	return msg.CreateSnapshotErrorCode_createSnapshotOk, snapID
+}
+
+func ProcessListSnapshotMessage(ctx context.Context, client *etcdapi.EtcdClient, imagename string, poolname string) (msg.ListSnapshotErrorCode, []*msg.SnapshotInfo) {
+	if !isPoolExist(poolname) {
+		return msg.ListSnapshotErrorCode_listSnapshotUnknownPoolName, []*msg.SnapshotInfo{}
+	}
+
+	if !isImageExist(imagename) {
+		return msg.ListSnapshotErrorCode_listSnapshotUnknownImageName, []*msg.SnapshotInfo{}
+	}
+
+	snapPrefix := formatSnapshotPrefix(poolname, imagename)
+	values, err := client.GetWithPrefix(ctx, snapPrefix)
+	if err != nil {
+		log.Error(ctx, "list snapshot failed, image is ", imagename, ", pool is ", poolname, ", error ", err.Error())
+		return msg.ListSnapshotErrorCode_listSnapshotServerError, []*msg.SnapshotInfo{}
+	}
+
+	return msg.ListSnapshotErrorCode_listSnapshotOk, snapshotsFromEtcdKeys(values)
+}
+
+func ProcessDeleteSnapshotMessage(ctx context.Context, client *etcdapi.EtcdClient, imagename string, poolname string, snapname string) msg.DeleteSnapshotErrorCode {
+	if !isPoolExist(poolname) {
+		return msg.DeleteSnapshotErrorCode_deleteSnapshotUnknownPoolName
+	}
+
+	if !isImageExist(imagename) {
+		return msg.DeleteSnapshotErrorCode_deleteSnapshotUnknownImageName
+	}
+
+	snapKey := formatSnapshotKey(poolname, imagename, snapname)
+	_, err := client.Get(ctx, snapKey)
+	if err == etcdapi.ErrorKeyNotFound {
+		log.Error(ctx, "snapshot ", snapname, " not found")
+		return msg.DeleteSnapshotErrorCode_deleteSnapshotNotFound
+	}
+
+	if err != nil {
+		log.Error(ctx, "get ectd with snapshot ", snapname, " error, ", err.Error())
+		return msg.DeleteSnapshotErrorCode_deleteSnapshotError
+	}
+
+	err = client.Delete(ctx, snapKey)
+	if err != nil {
+		log.Error(ctx, "delete ectd with snapshot ", snapname, " error, ", err.Error())
+		return msg.DeleteSnapshotErrorCode_deleteSnapshotError
+	}
+
+	return msg.DeleteSnapshotErrorCode_deleteSnapshotOk
 }
 
 func ProcessRemoveImageMessage(ctx context.Context, client *etcdapi.EtcdClient, imagename string, poolname string) (msg.RemoveImageErrorCode, *ImageConfig) {

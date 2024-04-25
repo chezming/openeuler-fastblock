@@ -134,7 +134,7 @@ cbits(T v)
     return (sizeof(v) * 8) - __builtin_clz(v);
 }
 
-unsigned fblock_client::calc_target(const std::string &sstr, int32_t target_pool_id)
+unsigned fblock_client::calc_target(const std::string &image_name, int32_t target_pool_id)
 {
     unsigned seed = jenkins_hash(sstr, sstr.size());
     calc_pg_masks(target_pool_id);
