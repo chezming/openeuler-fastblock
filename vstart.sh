@@ -118,7 +118,7 @@ cp $ROOT/src/tools/block_bench.json vm_blockbench.json
 jq '.mon_host |= ["127.0.0.1"]' vm_blockbench.json > tmp_file.json && mv tmp_file.json vm_blockbench.json
 jq '.image_name |= "fbimage"' vm_blockbench.json > tmp_file.json && mv tmp_file.json vm_blockbench.json
 jq '.pool_name |= "fb"' vm_blockbench.json > tmp_file.json && mv tmp_file.json vm_blockbench.json
-jq '.pool_id |= 1' vm_blockbench.json > tmp_file.json && mv tmp_file.json vm_blockbench.json
+jq '.pool_id |= 0' vm_blockbench.json > tmp_file.json && mv tmp_file.json vm_blockbench.json
 jq '.object_size |= 4194304' vm_blockbench.json > tmp_file.json && mv tmp_file.json vm_blockbench.json
 jq '.image_size |= '\"$size\"'' vm_blockbench.json > tmp_file.json && mv tmp_file.json vm_blockbench.json
 jq '.msg_client_metadata_memory_pool_capacity |= 16' vm_blockbench.json > tmp_file.json && mv tmp_file.json vm_blockbench.json
