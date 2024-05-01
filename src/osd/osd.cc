@@ -519,6 +519,11 @@ static int from_configuration(server_t* server, std::string& bdev_json_file) {
         return -1;
     }
 
+    if (!utils::is_valid_uuid(g_uuid)) {
+        std::cerr << "--uuid <uuid> must be set legal uuid\n";
+        return -1;
+    }
+
     if(g_mkfs){
         server->osd_uuid = g_uuid;
     }
