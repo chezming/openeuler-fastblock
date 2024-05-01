@@ -81,7 +81,7 @@ private:
         if(count > 1 && spdk_env_get_core_count() > 1)
             return true;
         return false;
-    }    
+    }
 };
 
 struct osd_info_t
@@ -153,6 +153,14 @@ static uint64_t  get_spdk_thread_id(){
     if(thread)
         return spdk_thread_get_id(thread);
     return 0;
+}
+
+static bool is_valid_uuid(const std::string& uuid){
+    std::regex uuidPattern(
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            std::regex_constants::icase
+    );
+    return std::regex_match(uuid, uuidPattern);
 }
 
 }
